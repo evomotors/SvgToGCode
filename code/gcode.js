@@ -2,9 +2,11 @@
 	var svgImage;
 	var fileData;
 	var scaleMultiplier = 1;
+	var limit = 1.0
+	var interp = 50
 	
-	const targetWidth = 1024;
-	const targetHeight = 256;
+    const targetWidth = 793;
+    const targetHeight = 1122;
 
 	var gcodeColorCommands=[{Canvas:null, Color:"empty", Command:[{Move:"", X:0, Y:0, Z:0}]}];
 	var gcodeCommands=[];
@@ -28,8 +30,47 @@
 			fileName = input.files[0].name;
 		}
 	}
-	
-	function ParseSVG(){							   
+
+	function ParsePaths(paths, line, move) {
+        for (var path = paths; path!=null; path = path.next){
+            //Iterate through all the paths in the parsed svg file and access the points
+            var x = rescale(path.pts[0]);
+            var y = rescale(path.pts[1]);
+
+            //Initial point
+            move(x,y)
+            for(var b = 2; b < path.pts.length; b += 6){
+                // Iterate the Cubic Bezier curves outlined by the points.
+                var p0x = rescale(path.pts[b-2]);
+                var p0y = rescale(path.pts[b-1]);
+                var p1x = rescale(path.pts[b])
+                var p1y = rescale(path.pts[b+1])
+                var p2x = rescale(path.pts[b+2])
+                var p2y = rescale(path.pts[b+3])
+                var x = rescale(path.pts[b+4])
+                var y = rescale(path.pts[b+5])
+                step = 1.0 / interp
+                var xto = null
+                var yto = null
+                var t = 0
+                for (var i = 0; i <= interp; i += 1) {
+                    // Between values of t for 0 and 1 calculate the point at t within the curve.
+                    t = step * i
+                    xt = (1-t)*(1-t)*(1-t)*p0x + 3*(1-t)*(1-t)*t*p1x + 3*(1-t)*t*t*p2x + t*t*t*x;
+                    yt = (1-t)*(1-t)*(1-t)*p0y + 3*(1-t)*(1-t)*t*p1y + 3*(1-t)*t*t*p2y + t*t*t*y;
+                    if ((Math.abs(xto - xt) < limit && Math.abs(yto - yt) < limit))
+                         continue // too close to previous point, skip
+                    line(xt,yt)
+                    xto = xt
+                    yto = yt
+                }
+                //Place final value.
+                line(x,y)
+            }
+        }
+	}
+
+	function ParseSVG(line, move){
 		try
 		{	
 			// stroke color for combined color SVGs 
@@ -39,62 +80,32 @@
 			var mctx = GetCanvas(strokeColor).getContext("2d");
 
 			for(var shape = svgImage.shapes; shape != null; shape=shape.next){
-				if((strokeColor = GetStrokeColor(shape)) != null){	
-				
-					var canv = GetCanvas(strokeColor);
-					var ctx = canv.getContext("2d");
-					
-					gcodeCommands = GetColorCommands(strokeColor,canv);
-					
-					for (var path = shape.paths; path!=null; path = path.next){
-						var x = rescale(path.pts[0]);
-						var y = rescale(path.pts[1]);
-							
-						gcodeCommands.push({Move:"G0", X:x, Y:y, Z:0.25});
-						ctx.moveTo(x, y);
-						mctx.moveTo(x, y);
-						
-						for (var i = 2; i < path.pts.length; i += 6 ){
-							var bizierPoints = GetBezierPoints([x,y, 
-								rescale(path.pts[i]),rescale(path.pts[i + 1]), 
-								rescale(path.pts[i + 2]),rescale(path.pts[i + 3]), 
-								rescale(path.pts[i + 4]),rescale(path.pts[i + 5])], 5 /*defines number of lines that will be returned*/); 
-							
-							bizierPoints = OptimizeBizierPoints(bizierPoints);
-							
-							for(var b = 0; b < bizierPoints.length; b += 2){
-								gcodeCommands.push({Move:"G1", X:bizierPoints[b], Y:bizierPoints[b + 1], Z:-0.01});
-								ctx.lineTo(bizierPoints[b], bizierPoints[b + 1]);
-								mctx.lineTo(bizierPoints[b], bizierPoints[b + 1]);
-							}
-							
-							x = rescale(path.pts[i + 4]); 
-							y = rescale(path.pts[i + 5]);
-						}
-					}
+				if((strokeColor = GetStrokeColor(shape)) == null) continue
+
+                var canv = GetCanvas(strokeColor);
+                var ctx = canv.getContext("2d");
+
+                gcodeCommands = GetColorCommands(strokeColor,canv);
+				function move(x, y) {
+                   gcodeCommands.push({Move:"G0", X:x, Y:y, Z:0.25});
+                   ctx.moveTo(x, y);
+                   mctx.moveTo(x, y);
 				}
-			}
-			
-			Finish(mctx);
-		}
+				function line(x,y) {
+                    gcodeCommands.push({Move:"G1", X:x, Y:y, Z:-0.01});
+                    ctx.lineTo(x, y);
+                    mctx.lineTo(x, y);
+				}
+                ParsePaths(shape.paths, line, move)
+            }
+            Finish(mctx);
+        }
 		catch(e){
 			$(".alert-error").html('<strong>Error!</strong> ' + e.toString());
 			$(".alert-error").css("display", "block");
 		}
 	}	
-	
-	function OptimizeBizierPoints(bizierPoints)
-	{
-		var x1 = bizierPoints[0], y1 = bizierPoints[1], 
-			x2 = bizierPoints[4], y2 = bizierPoints[5],
-			x3 = bizierPoints[8], y3 = bizierPoints[9];
-			
-		if(Math.abs(x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2)).toFixed(2)==0.00)
-			return [x1,y1,x3,y3];
-		else
-			return bizierPoints;
-	}
-	
+
 	function GetCanvas(color)
 	{
 		var canvas = document.getElementById('cnv'+color);
