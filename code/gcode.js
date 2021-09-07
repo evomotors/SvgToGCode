@@ -2,6 +2,7 @@
 	var svgImage;
 	var fileData;
 	var scaleMultiplier = 1;
+	var limit = 1e-3
 	
     const targetWidth = 793;
     const targetHeight = 1122;
@@ -54,7 +55,7 @@
 						gcodeCommands.push({Move:"G0", X:x, Y:y, Z:0.25});
 						ctx.moveTo(x, y);
 						mctx.moveTo(x, y);
-					    for(var b = 2; b < path.pts.length-2; b += 6){
+					    for(var b = 2; b < path.pts.length; b += 6){
 						    var p0x = rescale(path.pts[b-2]);
 						    var p0y = rescale(path.pts[b-1]);
 						    var p1x = rescale(path.pts[b])
@@ -63,14 +64,23 @@
 						    var p2y = rescale(path.pts[b+3])
 						    var x = rescale(path.pts[b+4])
 						    var y = rescale(path.pts[b+5])
-						    step = 1.0 / 50
-						    for (var t = 0; t <= 1; t += step) {
+						    step = 1.0 / 50.0
+						    var xto = null
+						    var yto = null
+						    for (var t = 0; t < 1.0; t += step) {
 						        xt = (1-t)*(1-t)*(1-t)*p0x + 3*(1-t)*(1-t)*t*p1x + 3*(1-t)*t*t*p2x + t*t*t*x;
                                 yt = (1-t)*(1-t)*(1-t)*p0y + 3*(1-t)*(1-t)*t*p1y + 3*(1-t)*t*t*p2y + t*t*t*y;
+                                if ((Math.abs(xto - xt) < limit && Math.abs(yto - yt) < limit)) continue
 							    gcodeCommands.push({Move:"G1", X:xt, Y:yt, Z:-0.01});
 							    ctx.lineTo(xt, yt);
 							    mctx.lineTo(xt, yt);
+							    xto = xt
+							    yto = yt
+
 							}
+							gcodeCommands.push({Move:"G1", X:x, Y:y, Z:-0.01});
+                            ctx.lineTo(x, y);
+						    mctx.lineTo(x, y);
 						}
 					}
 				}
